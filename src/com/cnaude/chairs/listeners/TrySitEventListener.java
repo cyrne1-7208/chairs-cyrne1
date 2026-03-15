@@ -25,6 +25,9 @@ public class TrySitEventListener implements Listener {
 		if ((event.getAction() == Action.RIGHT_CLICK_BLOCK) && (event.getHand() == EquipmentSlot.HAND)) {
 			Player player = event.getPlayer();
 			Block block = event.getClickedBlock();
+			if (block == null) {
+				return;
+			}
 			Location sitLocation = plugin.getSitUtils().calculateSitLocation(player, block);
 			if ((sitLocation != null) && plugin.getPlayerSitData().sitPlayer(player, block, sitLocation)) {
 				event.setCancelled(true);

@@ -4,12 +4,12 @@ import java.text.MessageFormat;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Bisected.Half;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Stairs;
-import org.bukkit.block.data.type.Stairs.Shape;
 import org.bukkit.block.data.type.WallSign;
 import org.bukkit.entity.AbstractArrow.PickupStatus;
 import org.bukkit.entity.ArmorStand;
@@ -31,9 +31,14 @@ public class SitUtils {
 	}
 
 	public Entity spawnChairEntity(Location location) {
+		World world = location.getWorld();
+		if (world == null) {
+			plugin.getLogger().warning("[SIT-SPAWN] Sit location has no world. Skipping chair entity spawn.");
+			return null;
+		}
 		switch (config.sitChairEntityType) {
 			case ARROW: {
-				Arrow arrow = location.getWorld().spawnArrow(location, new Vector(0, 1, 0), 0, 0);
+				Arrow arrow = world.spawnArrow(location, new Vector(0, 1, 0), 0, 0);
 				arrow.setGravity(false);
 				arrow.setInvulnerable(true);
 				arrow.setPickupStatus(PickupStatus.DISALLOWED);
@@ -41,7 +46,7 @@ public class SitUtils {
 			}
 			case ARMOR_STAND: {
 				location = location.clone().add(0, 0.4, 0);
-				return location.getWorld().spawn(
+				return world.spawn(
 					location, ArmorStand.class, armorstand -> {
 						armorstand.setGravity(false);
 						armorstand.setInvulnerable(true);
@@ -81,11 +86,7 @@ public class SitUtils {
 		if (sitdata.isSitting(player)) {
 			return false;
 		}
-		if (sitdata.isBlockOccupied(block)) {
-			return false;
-		}
-
-		return true;
+		return !sitdata.isBlockOccupied(block);
 	}
 
 	public Location calculateSitLocation(Player player, Block block) {
@@ -95,6 +96,9 @@ public class SitUtils {
 		}
 
 		BlockData blockdata = block.getBlockData();
+		if (config.isMaterialExplicitlyDisabled(blockdata.getMaterial())) {
+			return null;
+		}
 		float yaw = player.getLocation().getYaw();
 		Double sitHeight = null;
 
@@ -165,7 +169,7 @@ public class SitUtils {
 		}
 
 		if (sitHeight == null) {
-			sitHeight = config.additionalChairs.get(blockdata.getMaterial());
+			sitHeight = config.resolveAdditionalChairHeight(blockdata.getMaterial());
 			if (sitHeight == null) {
 				return null;
 			}
@@ -177,8 +181,8 @@ public class SitUtils {
 		return plocation;
 	}
 
-	protected static final boolean isStairsSittable(Stairs stairs) {
-		return (stairs.getHalf() == Half.BOTTOM) && (stairs.getShape() == Shape.STRAIGHT);
+	protected static boolean isStairsSittable(Stairs stairs) {
+		return stairs.getHalf() == Half.BOTTOM;
 	}
 
 	protected static boolean isStairsEndingSign(BlockFace expectedFacing, Block block) {

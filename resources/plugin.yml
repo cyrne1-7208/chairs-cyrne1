@@ -1,7 +1,7 @@
 name: Chairs
 main: com.cnaude.chairs.core.Chairs
-api-version: 1.14
-version: 7.1
+api-version: 1.15
+version: 1.1.0
 description: Let players sit on blocks.
 website: http://dev.bukkit.org/bukkit-plugins/chairsreloaded/
 authors: 
@@ -10,12 +10,18 @@ authors:
  - _Shevchik_
  - Pugabyte
 commands:
-    chairs:
-        description: Various commands for Chairs.
-        usage: |
-          /<command> reload - reloads the configuration
-          /<command> off  - disable chairs for self
-          /<command> on - enable chairs for self
+  chair:
+    description: Sit yourself or force a player to sit on a nearby chair block.
+    usage: /<command> [player]
+  chairs:
+    description: Various commands for Chairs.
+    usage: |
+      /<command> reload - reloads the configuration
+      /<command> off  - disable chairs for self
+      /<command> on - enable chairs for self
+      /<command> block list - list disabled chair block ids
+      /<command> block disable <id|*_STAIRS> - disable a chair block id/pattern
+      /<command> block enable <id|*_STAIRS> - enable a chair block id/pattern
 permissions:
   chairs.*:
     description: Gives access to all Chairs commands
@@ -23,6 +29,8 @@ permissions:
       chairs.sit: true
       chairs.reload: true
       chairs.sit.health: true
+      chairs.block.edit: true
+      chairs.sit.force: true
   chairs.reload:
     description: Allows you to reload Chairs Configuration
     default: op
@@ -32,3 +40,9 @@ permissions:
   chairs.sit.health:
     description: Allows regenerating health while sitting (if enabled)
     default: true
+  chairs.block.edit:
+    description: Allows enabling/disabling chair block ids from command
+    default: op
+  chairs.sit.force:
+    description: Allows forcing a player to sit using /chair <player>
+    default: op

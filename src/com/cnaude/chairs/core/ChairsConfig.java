@@ -3,8 +3,11 @@ package com.cnaude.chairs.core;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -37,6 +40,7 @@ public class ChairsConfig {
 	protected static final String sitConfigStairsSpecialEndCornerStairsPath = "corner-stairs";
 
 	protected static final String sitConfigAdditionalChairsPath = "additional-blocks";
+	protected static final String sitConfigDisabledBlocksPath = "disabled-blocks";
 
 	protected static final String sitEffectsSectionPath = "sit-effects";
 
@@ -77,6 +81,8 @@ public class ChairsConfig {
 	public boolean stairsSpecialEndCornerStairs = true;
 
 	public final Map<Material, Double> additionalChairs = new EnumMap<>(Material.class);
+	public final Map<String, Double> additionalChairPatterns = new HashMap<>();
+	public final Set<String> disabledChairPatterns = new HashSet<>();
 
 	public boolean effectsHealEnabled = false;
 	public int effectsHealMaxHealth = 100;
@@ -106,7 +112,10 @@ public class ChairsConfig {
 				sitDisabledWorlds.addAll(sitConfigSection.getStringList(sitConfigDisabledWorldsPath));
 				sitRequireEmptyHand = sitConfigSection.getBoolean(sitConfigRequireEmptyHandPath, sitRequireEmptyHand);
 				sitMaxDistance = sitConfigSection.getDouble(sitConfigMaxDistancePath, sitMaxDistance);
-				sitChairEntityType = ChairEntityType.fromString(sitConfigSection.getString(sitConfigChairEntityType, sitChairEntityType.name()));
+				sitChairEntityType = ChairEntityType.fromString(
+					sitConfigSection.getString(sitConfigChairEntityType, sitChairEntityType.name()),
+					sitChairEntityType
+				);
 
 				ConfigurationSection sitConfigStairsSection = sitConfigSection.getConfigurationSection(sitConfigStairsSectionPath);
 				if (sitConfigStairsSection != null) {
@@ -121,13 +130,41 @@ public class ChairsConfig {
 					}
 				}
 
+				additionalChairs.clear();
+				additionalChairPatterns.clear();
 				ConfigurationSection sitConfigAdditionalBlocksSection = sitConfigSection.getConfigurationSection(sitConfigAdditionalChairsPath);
 				if (sitConfigAdditionalBlocksSection != null) {
 					for (String materialName : sitConfigAdditionalBlocksSection.getKeys(false)) {
-						Material material = Material.getMaterial(materialName);
-						if (material != null) {
-							additionalChairs.put(material, sitConfigAdditionalBlocksSection.getDouble(materialName));
+						String normalized = normalizeMaterialPattern(materialName);
+						double sitHeight = sitConfigAdditionalBlocksSection.getDouble(materialName);
+						if (!Double.isFinite(sitHeight)) {
+							plugin.getLogger().warning("[CFG-ADD-HEIGHT] Invalid sit height for material key '" + materialName + "'.");
+							continue;
 						}
+						if (!isValidMaterialPattern(normalized)) {
+							plugin.getLogger().warning("[CFG-ADD-PATTERN] Invalid material key format: " + materialName);
+							continue;
+						}
+						if (normalized.contains("*")) {
+							additionalChairPatterns.put(normalized, sitHeight);
+							continue;
+						}
+						Material material = Material.getMaterial(normalized);
+						if (material != null) {
+							additionalChairs.put(material, sitHeight);
+						} else {
+							plugin.getLogger().warning("[CFG-ADD-MATERIAL] Unknown material in additional-blocks: " + materialName);
+						}
+					}
+				}
+
+				disabledChairPatterns.clear();
+				for (String disabledBlock : sitConfigSection.getStringList(sitConfigDisabledBlocksPath)) {
+					String normalized = normalizeMaterialPattern(disabledBlock);
+					if (isValidMaterialPattern(normalized)) {
+						disabledChairPatterns.add(normalized);
+					} else {
+						plugin.getLogger().warning("[CFG-DISABLE-PATTERN] Invalid disabled block key: " + disabledBlock);
 					}
 				}
 			}
@@ -154,7 +191,12 @@ public class ChairsConfig {
 				if (sitRestrictionsCommandsSection != null) {
 					restrictionsDisableAllCommands = sitRestrictionsCommandsSection.getBoolean(sitRestrictionsCommandsBlockAllPath, restrictionsDisableAllCommands);
 					restrictionsDisabledCommands.clear();
-					restrictionsDisabledCommands.addAll(sitRestrictionsCommandsSection.getStringList(sitRestrictionsCommandsBlockListPath));
+					for (String command : sitRestrictionsCommandsSection.getStringList(sitRestrictionsCommandsBlockListPath)) {
+						String normalizedCommand = normalizeRestrictedCommand(command);
+						if (!normalizedCommand.isEmpty()) {
+							restrictionsDisabledCommands.add(normalizedCommand);
+						}
+					}
 				}
 			}
 
@@ -172,6 +214,14 @@ public class ChairsConfig {
 			}
 		}
 
+		saveConfigFile(file);
+	}
+
+	public boolean saveConfigFile() {
+		return saveConfigFile(new File(plugin.getDataFolder(), "config.yml"));
+	}
+
+	private boolean saveConfigFile(File file) {
 		{
 			FileConfiguration config = new YamlConfiguration();
 
@@ -199,7 +249,12 @@ public class ChairsConfig {
 					for (Entry<Material, Double> entry : additionalChairs.entrySet()) {
 						sitConfigAdditionalBlocksSection.set(entry.getKey().toString(), entry.getValue());
 					}
+					for (Entry<String, Double> entry : additionalChairPatterns.entrySet()) {
+						sitConfigAdditionalBlocksSection.set(entry.getKey(), entry.getValue());
+					}
 				}
+
+				sitConfigSection.set(sitConfigDisabledBlocksPath, new ArrayList<>(disabledChairPatterns));
 			}
 
 			ConfigurationSection sitEffectsSection = config.createSection(sitEffectsSectionPath);
@@ -240,18 +295,102 @@ public class ChairsConfig {
 				}
 			}
 
-			try {config.save(file);} catch (IOException e) {}
+			try {
+				config.save(file);
+				return true;
+			} catch (IOException e) {
+				plugin.getLogger().log(java.util.logging.Level.WARNING, "[CFG-SAVE] Failed to save config.yml", e);
+				return false;
+			}
 		}
+	}
+
+	public static String normalizeMaterialPattern(String rawPattern) {
+		if (rawPattern == null) {
+			return "";
+		}
+		return rawPattern.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+	}
+
+	public boolean isMaterialExplicitlyDisabled(Material material) {
+		String materialName = material.name();
+		for (String pattern : disabledChairPatterns) {
+			if (matchesMaterialPattern(materialName, pattern)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public Double resolveAdditionalChairHeight(Material material) {
+		Double exactHeight = additionalChairs.get(material);
+		if (exactHeight != null) {
+			return exactHeight;
+		}
+		String materialName = material.name();
+		for (Entry<String, Double> entry : additionalChairPatterns.entrySet()) {
+			if (matchesMaterialPattern(materialName, entry.getKey())) {
+				return entry.getValue();
+			}
+		}
+		return null;
+	}
+
+	public boolean setChairDisabledPattern(String pattern, boolean disabled) {
+		String normalized = normalizeMaterialPattern(pattern);
+		if (!isValidMaterialPattern(normalized)) {
+			return false;
+		}
+		if (disabled) {
+			return disabledChairPatterns.add(normalized);
+		}
+		return disabledChairPatterns.remove(normalized);
+	}
+
+	public Set<String> getDisabledChairPatterns() {
+		return Collections.unmodifiableSet(disabledChairPatterns);
+	}
+
+	public static String normalizeRestrictedCommand(String rawCommand) {
+		if (rawCommand == null) {
+			return "";
+		}
+		String normalized = rawCommand.trim().toLowerCase(Locale.ROOT);
+		if (normalized.isEmpty()) {
+			return "";
+		}
+		if (!normalized.startsWith("/")) {
+			normalized = "/" + normalized;
+		}
+		return normalized;
+	}
+
+	public static boolean isValidMaterialPattern(String normalizedPattern) {
+		if ((normalizedPattern == null) || normalizedPattern.isEmpty()) {
+			return false;
+		}
+		return normalizedPattern.matches("[A-Z0-9_*]+") && !normalizedPattern.equals("*");
+	}
+
+	protected static boolean matchesMaterialPattern(String materialName, String pattern) {
+		if (materialName.equals(pattern)) {
+			return true;
+		}
+		if (!pattern.contains("*")) {
+			return false;
+		}
+		String regex = pattern.replace("*", ".*");
+		return materialName.matches(regex);
 	}
 
 	public static enum ChairEntityType {
 		ARROW, ARMOR_STAND;
 
-		public static ChairEntityType fromString(String string) {
+		public static ChairEntityType fromString(String string, ChairEntityType defaultValue) {
 			try {
 				return ChairEntityType.valueOf(string);
-			} catch (IllegalArgumentException e) {
-				return ChairEntityType.ARMOR_STAND;
+			} catch (IllegalArgumentException | NullPointerException e) {
+				return defaultValue;
 			}
 		}
 	}

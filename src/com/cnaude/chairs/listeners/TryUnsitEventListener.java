@@ -63,7 +63,9 @@ public class TryUnsitEventListener implements Listener {
 		Block b = event.getBlock();
 		if (plugin.getPlayerSitData().isBlockOccupied(b)) {
 			Player player = plugin.getPlayerSitData().getPlayerOnChair(b);
-			plugin.getPlayerSitData().unsitPlayerForce(player, true);
+			if (player != null) {
+				plugin.getPlayerSitData().unsitPlayerForce(player, true);
+			}
 		}
 	}
 

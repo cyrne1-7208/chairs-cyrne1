@@ -2,6 +2,7 @@ package com.cnaude.chairs.sitaddons;
 
 import org.bukkit.Bukkit;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ExperienceOrb;
 import org.bukkit.entity.Item;
@@ -35,14 +36,25 @@ public class ChairEffects {
 				.filter(p -> p.hasPermission("chairs.sit.health"))
 				.filter(plugin.getPlayerSitData()::isSitting)
 				.forEach(p -> {
-					double health = p.getHealth();
-					double maxHealth = p.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
-					if ((((health / maxHealth) * 100d) < config.effectsHealMaxHealth) && (health < maxHealth)) {
-						double newHealth = config.effectsHealHealthPerInterval + health;
-						if (newHealth > maxHealth) {
-							newHealth = maxHealth;
+					try {
+						double health = p.getHealth();
+						AttributeInstance maxHealthAttribute = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+						if (maxHealthAttribute == null) {
+							return;
 						}
-						p.setHealth(newHealth);
+						double maxHealth = maxHealthAttribute.getValue();
+						if (maxHealth <= 0) {
+							return;
+						}
+						if ((((health / maxHealth) * 100d) < config.effectsHealMaxHealth) && (health < maxHealth)) {
+							double newHealth = config.effectsHealHealthPerInterval + health;
+							if (newHealth > maxHealth) {
+								newHealth = maxHealth;
+							}
+							p.setHealth(newHealth);
+						}
+					} catch (RuntimeException ex) {
+						plugin.getLogger().log(java.util.logging.Level.WARNING, "[EFFECT-HEAL] Failed to heal " + p.getName(), ex);
 					}
 				}),
 			config.effectsHealInterval, config.effectsHealInterval
@@ -68,45 +80,49 @@ public class ChairEffects {
 				Bukkit.getOnlinePlayers().stream()
 				.filter(plugin.getPlayerSitData()::isSitting)
 				.forEach(p -> {
-					for (Entity entity : p.getNearbyEntities(1, 2, 1)) {
-						if (entity instanceof Item) {
-							Item item = (Item) entity;
-							if (item.getPickupDelay() == 0) {
-								if (p.getInventory().firstEmpty() != -1) {
-									EntityPickupItemEvent pickupevent = new EntityPickupItemEvent(p, item, 0);
-									Bukkit.getPluginManager().callEvent(pickupevent);
-									if (!pickupevent.isCancelled()) {
-										p.getInventory().addItem(item.getItemStack());
-										entity.remove();
+					try {
+						for (Entity entity : p.getNearbyEntities(1, 2, 1)) {
+							if (entity instanceof Item) {
+								Item item = (Item) entity;
+								if (item.getPickupDelay() == 0) {
+									if (p.getInventory().firstEmpty() != -1) {
+										EntityPickupItemEvent pickupevent = new EntityPickupItemEvent(p, item, 0);
+										Bukkit.getPluginManager().callEvent(pickupevent);
+										if (!pickupevent.isCancelled()) {
+											p.getInventory().addItem(item.getItemStack());
+											entity.remove();
+										}
 									}
 								}
-							}
-						} else if (entity instanceof ExperienceOrb) {
-							ExperienceOrb eorb = (ExperienceOrb) entity;
-							int exptoadd = eorb.getExperience();
-							while (exptoadd > 0) {
-								int localexptoadd = 0;
-								if (p.getExpToLevel() < exptoadd) {
-									localexptoadd = p.getExpToLevel();
-									PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
-									Bukkit.getPluginManager().callEvent(expchangeevent);
-									p.giveExp(expchangeevent.getAmount());
-									if (p.getExpToLevel() <= 0) {
-										PlayerLevelChangeEvent levelchangeevent = new PlayerLevelChangeEvent(p, p.getLevel(), p.getLevel()+1);
-										Bukkit.getPluginManager().callEvent(levelchangeevent);
-										p.setExp(0);
-										p.giveExpLevels(1);
+							} else if (entity instanceof ExperienceOrb) {
+								ExperienceOrb eorb = (ExperienceOrb) entity;
+								int exptoadd = eorb.getExperience();
+								while (exptoadd > 0) {
+									int localexptoadd = 0;
+									if (p.getExpToLevel() < exptoadd) {
+										localexptoadd = p.getExpToLevel();
+										PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
+										Bukkit.getPluginManager().callEvent(expchangeevent);
+										p.giveExp(expchangeevent.getAmount());
+										if (p.getExpToLevel() <= 0) {
+											PlayerLevelChangeEvent levelchangeevent = new PlayerLevelChangeEvent(p, p.getLevel(), p.getLevel()+1);
+											Bukkit.getPluginManager().callEvent(levelchangeevent);
+											p.setExp(0);
+											p.giveExpLevels(1);
+										}
+									} else {
+										localexptoadd = exptoadd;
+										PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
+										Bukkit.getPluginManager().callEvent(expchangeevent);
+										p.giveExp(expchangeevent.getAmount());
 									}
-								} else {
-									localexptoadd = exptoadd;
-									PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
-									Bukkit.getPluginManager().callEvent(expchangeevent);
-									p.giveExp(expchangeevent.getAmount());
+									exptoadd -= localexptoadd;
 								}
-								exptoadd -= localexptoadd;
+								entity.remove();
 							}
-							entity.remove();
 						}
+					} catch (RuntimeException ex) {
+						plugin.getLogger().log(java.util.logging.Level.WARNING, "[EFFECT-PICKUP] Failed pickup tick for " + p.getName(), ex);
 					}
 				}),
 			1,1
