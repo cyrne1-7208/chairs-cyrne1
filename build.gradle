@@ -1,5 +1,5 @@
 plugins {
-	id 'com.github.johnrengelman.shadow' version '5.0.0'
+	id 'com.github.johnrengelman.shadow' version '8.1.1'
 	id 'java'
 }
 
@@ -7,19 +7,21 @@ plugins {
 defaultTasks 'build'
 
 
-group 'io.github.Shevchik'
-version '7.0'
+group = 'io.github.Shevchik'
+version = '1.1.0'
 
 
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.nio.file.Files
 
 
 Path projectDirectoryPath = projectDir.toPath().toAbsolutePath()
 
 
-sourceCompatibility = JavaVersion.VERSION_1_8
+java {
+	sourceCompatibility = JavaVersion.VERSION_1_8
+	targetCompatibility = JavaVersion.VERSION_1_8
+}
 
 sourceSets {
 	main {
@@ -34,25 +36,25 @@ sourceSets {
 
 repositories {
 	mavenCentral()
-	jcenter()
 	maven {
-		url 'https://oss.sonatype.org/content/repositories/snapshots/'
+		url = 'https://oss.sonatype.org/content/repositories/snapshots/'
 	}
 	maven {
-		url 'https://hub.spigotmc.org/nexus/content/repositories/public/'
+		url = 'https://hub.spigotmc.org/nexus/content/repositories/public/'
 	}
 	maven {
-		url 'https://jitpack.io'
+		url = 'https://jitpack.io'
 	}
 }
 
 dependencies {
-	compileOnly group: 'org.spigotmc', name: 'spigot-api', version: '1.14-R0.1-SNAPSHOT'
+	compileOnly group: 'org.spigotmc', name: 'spigot-api', version: '1.15.2-R0.1-SNAPSHOT'
 }
 
-compileJava {
+tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'
-	options.incremental = false
+	options.incremental = true
+	options.release = 8
 }
 
 
@@ -60,7 +62,7 @@ shadowJar {
 	from sourceSets.main.java.srcDirs
 	from 'LICENSE'
 
-	archiveName = jar.archiveName
+	archiveFileName.set(jar.archiveFileName.get())
 
 	minimize()
 }
@@ -70,8 +72,8 @@ task copyFinalJarToTarget(type: DefaultTask) {doLast{
 	Path targetJarDirectory = projectDirectoryPath.resolve("target")
 	Files.createDirectories(targetJarDirectory)
 	Files.copy(
-		shadowJar.archivePath.toPath().toAbsolutePath(),
-		targetJarDirectory.resolve(shadowJar.baseName + '.jar'),
+		shadowJar.archiveFile.get().asFile.toPath().toAbsolutePath(),
+		targetJarDirectory.resolve(shadowJar.archiveBaseName.get() + '.jar'),
 		java.nio.file.StandardCopyOption.REPLACE_EXISTING
 	)
 }}

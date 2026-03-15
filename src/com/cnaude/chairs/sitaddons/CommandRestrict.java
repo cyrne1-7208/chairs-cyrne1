@@ -1,5 +1,7 @@
 package com.cnaude.chairs.sitaddons;
 
+import java.util.Locale;
+
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -26,7 +28,7 @@ public class CommandRestrict implements Listener {
 	@EventHandler(priority=EventPriority.LOWEST)
 	public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
 		Player player = event.getPlayer();
-		String playercommand = event.getMessage().toLowerCase();
+		String playercommand = event.getMessage().trim().toLowerCase(Locale.ROOT);
 		if (plugin.getPlayerSitData().isSitting(player)) {
 			if (config.restrictionsDisableAllCommands) {
 				event.setCancelled(true);
@@ -34,8 +36,8 @@ public class CommandRestrict implements Listener {
 				return;
 			}
 			for (String disabledCommand : config.restrictionsDisabledCommands) {
-				if (disabledCommand.startsWith(playercommand)) {
-					String therest = playercommand.replace(disabledCommand, "");
+				if (playercommand.startsWith(disabledCommand)) {
+					String therest = playercommand.substring(disabledCommand.length());
 					if (therest.isEmpty() || therest.startsWith(" ")) {
 						event.setCancelled(true);
 						player.sendMessage(ChatColor.translateAlternateColorCodes('&', config.msgSitCommandRestricted));

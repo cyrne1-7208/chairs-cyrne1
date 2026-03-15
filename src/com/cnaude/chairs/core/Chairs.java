@@ -2,12 +2,14 @@ package com.cnaude.chairs.core;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.spigotmc.event.entity.EntityDismountEvent;
 
@@ -63,16 +65,39 @@ public class Chairs extends JavaPlugin {
 			setEnabled(false);
 			return;
 		}
-		try {
-			Files.copy(getClass().getClassLoader().getResourceAsStream("config_help.txt"), new File(getDataFolder(), "config_help.txt").toPath(), StandardCopyOption.REPLACE_EXISTING);
+		if (!getDataFolder().exists()) {
+			if (!getDataFolder().mkdirs() && !getDataFolder().exists()) {
+				getLogger().warning("Could not create plugin data folder: " + getDataFolder().getAbsolutePath());
+			}
+		}
+		try (InputStream configHelpStream = getClass().getClassLoader().getResourceAsStream("config_help.txt")) {
+			if (configHelpStream != null) {
+				Files.copy(configHelpStream, new File(getDataFolder(), "config_help.txt").toPath(), StandardCopyOption.REPLACE_EXISTING);
+			}
 		} catch (IOException e) {
+			getLogger().log(Level.WARNING, "Failed to copy config_help.txt", e);
 		}
 		reloadConfig();
 		getServer().getPluginManager().registerEvents(new NANLoginListener(), this);
 		getServer().getPluginManager().registerEvents(new TrySitEventListener(this), this);
 		getServer().getPluginManager().registerEvents(new TryUnsitEventListener(this), this);
 		getServer().getPluginManager().registerEvents(new CommandRestrict(this), this);
-		getCommand("chairs").setExecutor(new ChairsCommand(this));
+		ChairsCommand commandExecutor = new ChairsCommand(this);
+
+		PluginCommand chairsCommand = getCommand("chairs");
+		if (chairsCommand != null) {
+			chairsCommand.setExecutor(commandExecutor);
+			chairsCommand.setTabCompleter(commandExecutor);
+		} else {
+			getLogger().severe("Missing command registration for 'chairs' in plugin.yml");
+		}
+		PluginCommand chairCommand = getCommand("chair");
+		if (chairCommand != null) {
+			chairCommand.setExecutor(commandExecutor);
+			chairCommand.setTabCompleter(commandExecutor);
+		} else {
+			getLogger().severe("Missing command registration for 'chair' in plugin.yml");
+		}
 	}
 
 	@Override
