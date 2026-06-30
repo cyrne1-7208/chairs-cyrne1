@@ -31,14 +31,15 @@ Compatibility and operational stability are prioritized across old and modern Pa
 
 | Minecraft | Server | JDK |
 |---|---|---|
-| 1.15.2 | Paper 1.15.2 | JDK 11.0.30 |
-| 1.16.5 | Paper 1.16.5 (build 794) | JDK 16.0.2 |
-| 1.21.11 | Paper 1.21.11 | JDK 23.0.2 |
+| 1.15.2 | Paper 1.15.2 (build 393) | JDK 11.0.31 |
+| 1.16.5 | Paper 1.16.5 (build 794) | JDK 11.0.31 |
+| 1.21.11 | Paper 1.21.11 (build 69) | JDK 21.0.11 |
+| 26.1.2 | Paper 26.1.2 (build 72) | JDK 25.0.3 |
 
-Code-level compatibility target: 1.15.2 – 1.21.11
+Code-level compatibility target: 1.15.2 – 26.1.2
 
 ## Status
-- Last README update: 2026-03-16
+- Last README update: 2026-06-30
 - Stability policy: keep plugin operation alive, log root causes in detail
 - Distribution note: this release is published as the Cyrne1_7208 version
 
@@ -56,7 +57,7 @@ Output: `target/Chairs.jar`
 ## Quick Start
 1. Place `target/Chairs.jar` in `plugins/`.
 2. Start or restart the server.
-3. Confirm `[Chairs] Enabling Chairs v1.1.0` in logs.
+3. Confirm `[Chairs] Enabling Chairs v1.2.0` in logs.
 4. Right-click stairs or run `/chair` in-game.
 
 Expected output:
@@ -123,8 +124,8 @@ Representative log tags:
 ```
 
 ## Testing
-Manual real-server tests were executed with Paper 1.15.2 / 1.16.5 / 1.21.11.
-For each target, plugin load (`Enabling Chairs`) and clean startup were verified.
+Manual real-server tests were executed with Paper 1.15.2 / 1.16.5 / 1.21.11 / 26.1.2.
+For each target, plugin load (`Enabling Chairs`), command execution, and clean startup were verified.
 
 ## Troubleshooting
 - `InvalidDescriptionException: commands are of wrong type`
@@ -138,8 +139,8 @@ For each target, plugin load (`Enabling Chairs`) and clean startup were verified
 - Original contributors: spoothie, cnaude, _Shevchik_, Pugabyte
 
 ## AI Usage
-- AI used: GPT-5.3-Codex
-- Usage scope: README restructuring and wording
+- AI used: GPT-5.3-Codex, GLM-4.6, MiMo-V2.5
+- Usage scope: Code review, bug fixing
 - Human review: commands/config/runtime behavior checked against source and startup logs
 
 ## Contributing

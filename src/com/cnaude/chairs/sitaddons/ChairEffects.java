@@ -1,14 +1,19 @@
 package com.cnaude.chairs.sitaddons;
 
+import java.lang.reflect.Method;
+
 import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ExperienceOrb;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.player.PlayerExpChangeEvent;
 import org.bukkit.event.player.PlayerLevelChangeEvent;
+import org.bukkit.inventory.ItemStack;
 
 import com.cnaude.chairs.core.Chairs;
 import com.cnaude.chairs.core.ChairsConfig;
@@ -22,6 +27,42 @@ public class ChairEffects {
 	protected int healTaskID = -1;
 	protected int pickupTaskID = -1;
 
+	private static final Attribute MAX_HEALTH_ATTRIBUTE = resolveMaxHealthAttribute();
+
+	private static Attribute resolveMaxHealthAttribute() {
+		Attribute result;
+		result = resolveViaRegistry();
+		if (result != null) return result;
+		result = resolveViaValueOf("MAX_HEALTH");
+		if (result != null) return result;
+		result = resolveViaValueOf("GENERIC_MAX_HEALTH");
+		return result;
+	}
+
+	private static Attribute resolveViaRegistry() {
+		try {
+			Class<?> registryClass = Class.forName("org.bukkit.Registry");
+			Object attrRegistry = registryClass.getField("ATTRIBUTE").get(null);
+			Method getMethod = attrRegistry.getClass().getMethod("get", NamespacedKey.class);
+			Object result = getMethod.invoke(attrRegistry, new NamespacedKey("minecraft", "max_health"));
+			if (result instanceof Attribute) {
+				return (Attribute) result;
+			}
+		} catch (Exception ignored) {}
+		return null;
+	}
+
+	private static Attribute resolveViaValueOf(String name) {
+		try {
+			Method valueOf = Attribute.class.getMethod("valueOf", String.class);
+			Object result = valueOf.invoke(null, name);
+			if (result instanceof Attribute) {
+				return (Attribute) result;
+			}
+		} catch (Exception ignored) {}
+		return null;
+	}
+
 	public ChairEffects(Chairs plugin) {
 		this.plugin = plugin;
 		this.config = plugin.getChairsConfig();
@@ -29,24 +70,31 @@ public class ChairEffects {
 	}
 
 	protected void startHealing() {
+		if (MAX_HEALTH_ATTRIBUTE == null) {
+			plugin.getLogger().warning("[EFFECT-HEAL] Could not resolve max health attribute. Healing disabled.");
+			return;
+		}
 		healTaskID = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
 			plugin,
-			() ->
-				Bukkit.getOnlinePlayers().stream()
-				.filter(p -> p.hasPermission("chairs.sit.health"))
-				.filter(plugin.getPlayerSitData()::isSitting)
-				.forEach(p -> {
+			() -> {
+				for (Player p : Bukkit.getOnlinePlayers()) {
+					if (!sitdata.isSitting(p)) {
+						continue;
+					}
+					if (!p.hasPermission("chairs.sit.health")) {
+						continue;
+					}
 					try {
 						double health = p.getHealth();
-						AttributeInstance maxHealthAttribute = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+						AttributeInstance maxHealthAttribute = p.getAttribute(MAX_HEALTH_ATTRIBUTE);
 						if (maxHealthAttribute == null) {
-							return;
+							continue;
 						}
 						double maxHealth = maxHealthAttribute.getValue();
 						if (maxHealth <= 0) {
-							return;
+							continue;
 						}
-						if ((((health / maxHealth) * 100d) < config.effectsHealMaxHealth) && (health < maxHealth)) {
+						if ((((health / maxHealth) * 100d) < config.effectsHealMaxPercent) && (health < maxHealth)) {
 							double newHealth = config.effectsHealHealthPerInterval + health;
 							if (newHealth > maxHealth) {
 								newHealth = maxHealth;
@@ -56,7 +104,8 @@ public class ChairEffects {
 					} catch (RuntimeException ex) {
 						plugin.getLogger().log(java.util.logging.Level.WARNING, "[EFFECT-HEAL] Failed to heal " + p.getName(), ex);
 					}
-				}),
+				}
+			},
 			config.effectsHealInterval, config.effectsHealInterval
 		);
 	}
@@ -76,55 +125,59 @@ public class ChairEffects {
 	protected void startPickup() {
 		pickupTaskID = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
 			plugin,
-			() ->
-				Bukkit.getOnlinePlayers().stream()
-				.filter(plugin.getPlayerSitData()::isSitting)
-				.forEach(p -> {
+			() -> {
+				for (Player p : Bukkit.getOnlinePlayers()) {
+					if (!sitdata.isSitting(p)) {
+						continue;
+					}
 					try {
 						for (Entity entity : p.getNearbyEntities(1, 2, 1)) {
 							if (entity instanceof Item) {
 								Item item = (Item) entity;
 								if (item.getPickupDelay() == 0) {
 									if (p.getInventory().firstEmpty() != -1) {
-										EntityPickupItemEvent pickupevent = new EntityPickupItemEvent(p, item, 0);
+										int amount = item.getItemStack().getAmount();
+										EntityPickupItemEvent pickupevent = new EntityPickupItemEvent(p, item, amount);
 										Bukkit.getPluginManager().callEvent(pickupevent);
 										if (!pickupevent.isCancelled()) {
-											p.getInventory().addItem(item.getItemStack());
-											entity.remove();
+											java.util.Map<Integer, ? extends ItemStack> leftovers = p.getInventory().addItem(item.getItemStack().clone());
+											int totalLeftover = 0;
+											for (ItemStack leftover : leftovers.values()) {
+												totalLeftover += leftover.getAmount();
+											}
+											if (totalLeftover == 0) {
+												entity.remove();
+											} else {
+												item.getItemStack().setAmount(totalLeftover);
+											}
 										}
 									}
 								}
 							} else if (entity instanceof ExperienceOrb) {
 								ExperienceOrb eorb = (ExperienceOrb) entity;
 								int exptoadd = eorb.getExperience();
-								while (exptoadd > 0) {
-									int localexptoadd = 0;
-									if (p.getExpToLevel() < exptoadd) {
-										localexptoadd = p.getExpToLevel();
-										PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
-										Bukkit.getPluginManager().callEvent(expchangeevent);
-										p.giveExp(expchangeevent.getAmount());
-										if (p.getExpToLevel() <= 0) {
-											PlayerLevelChangeEvent levelchangeevent = new PlayerLevelChangeEvent(p, p.getLevel(), p.getLevel()+1);
+								if (exptoadd > 0) {
+									int oldLevel = p.getLevel();
+									PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, exptoadd);
+									Bukkit.getPluginManager().callEvent(expchangeevent);
+									int adjustedAmount = Math.max(0, expchangeevent.getAmount());
+									if (adjustedAmount > 0) {
+										p.giveExp(adjustedAmount);
+										int newLevel = p.getLevel();
+										if (newLevel > oldLevel) {
+											PlayerLevelChangeEvent levelchangeevent = new PlayerLevelChangeEvent(p, oldLevel, newLevel);
 											Bukkit.getPluginManager().callEvent(levelchangeevent);
-											p.setExp(0);
-											p.giveExpLevels(1);
 										}
-									} else {
-										localexptoadd = exptoadd;
-										PlayerExpChangeEvent expchangeevent = new PlayerExpChangeEvent(p, localexptoadd);
-										Bukkit.getPluginManager().callEvent(expchangeevent);
-										p.giveExp(expchangeevent.getAmount());
+										entity.remove();
 									}
-									exptoadd -= localexptoadd;
 								}
-								entity.remove();
 							}
 						}
 					} catch (RuntimeException ex) {
 						plugin.getLogger().log(java.util.logging.Level.WARNING, "[EFFECT-PICKUP] Failed pickup tick for " + p.getName(), ex);
 					}
-				}),
+				}
+			},
 			1,1
 		);
 	}

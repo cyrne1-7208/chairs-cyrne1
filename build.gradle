@@ -8,7 +8,7 @@ defaultTasks 'build'
 
 
 group = 'io.github.Shevchik'
-version = '1.1.0'
+version = '1.2.0'
 
 
 import java.nio.file.Path

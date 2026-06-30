@@ -1,7 +1,10 @@
 package com.cnaude.chairs.core;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -22,8 +25,9 @@ public class PlayerSitData {
 
 	protected final NamespacedKey sitDisabledKey;
 
-	protected final Map<Player, SitData> sittingPlayers = new HashMap<>();
+	protected final Map<UUID, SitData> sittingPlayers = new HashMap<>();
 	protected final Map<Block, Player> occupiedBlocks = new HashMap<>();
+	private final Set<UUID> unsittingNow = new HashSet<>();
 
 	public PlayerSitData(Chairs plugin) {
 		this.plugin = plugin;
@@ -44,7 +48,7 @@ public class PlayerSitData {
 	}
 
 	public boolean isSitting(Player player) {
-		SitData sitdata = sittingPlayers.get(player);
+		SitData sitdata = sittingPlayers.get(player.getUniqueId());
 		return (sitdata != null) && sitdata.sitting;
 	}
 
@@ -56,7 +60,7 @@ public class PlayerSitData {
 		return occupiedBlocks.get(chair);
 	}
 
-	public boolean sitPlayer(final Player player,  Block blocktooccupy, Location sitlocation) {
+	public boolean sitPlayer(final Player player, Block blocktooccupy, Location sitlocation) {
 		if (sitlocation == null) {
 			return false;
 		}
@@ -68,8 +72,15 @@ public class PlayerSitData {
 		if (playersitevent.isCancelled()) {
 			return false;
 		}
-		sitlocation = playersitevent.getSitLocation().clone();
-		if ((sitlocation.getWorld() == null) || !sitlocation.getWorld().isChunkLoaded(sitlocation.getBlockX() >> 4, sitlocation.getBlockZ() >> 4)) {
+		Location validatedLoc = playersitevent.getSitLocation();
+		if (validatedLoc == null) {
+			return false;
+		}
+		sitlocation = validatedLoc.clone();
+		if (sitlocation.getWorld() == null) {
+			return false;
+		}
+		if (!sitlocation.getWorld().isChunkLoaded(sitlocation.getBlockX() >> 4, sitlocation.getBlockZ() >> 4)) {
 			return false;
 		}
 		Entity chairentity;
@@ -83,36 +94,45 @@ public class PlayerSitData {
 			return false;
 		}
 		SitData sitdata;
-		if(chairentity.getType().equals(EntityType.ARMOR_STAND)){
-			sitdata= new SitData(chairentity, player.getLocation(), blocktooccupy);
-		}else{
-			sitdata= new SitData(
-					chairentity, player.getLocation(), blocktooccupy,
-					Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> resitPlayer(player), 1000, 1000)
+		if (chairentity.getType() == EntityType.ARMOR_STAND) {
+			sitdata = new SitData(chairentity, player.getLocation(), blocktooccupy);
+		} else {
+			sitdata = new SitData(
+				chairentity, player.getLocation(), blocktooccupy,
+				Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> resitPlayer(player), 1000, 1000)
 			);
 		}
-		if (!player.teleport(sitlocation) || !chairentity.addPassenger(player)) {
-			if (sitdata.resitTaskId != -1) {
-				Bukkit.getScheduler().cancelTask(sitdata.resitTaskId);
+		try {
+			if (!player.teleport(sitlocation) || !chairentity.addPassenger(player)) {
+				cleanupFailedSit(sitdata, chairentity);
+				return false;
 			}
-			chairentity.remove();
+		} catch (RuntimeException ex) {
+			plugin.getLogger().log(java.util.logging.Level.WARNING, "[SIT-START] Teleport/passenger failed for " + player.getName(), ex);
+			cleanupFailedSit(sitdata, chairentity);
 			return false;
 		}
+		sittingPlayers.put(player.getUniqueId(), sitdata);
+		occupiedBlocks.put(blocktooccupy, player);
+		sitdata.sitting = true;
 		if (plugin.getChairsConfig().msgEnabled) {
 			player.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.getChairsConfig().msgSitEnter));
 		}
-		sittingPlayers.put(player, sitdata);
-		occupiedBlocks.put(blocktooccupy, player);
-		sitdata.sitting = true;
 		return true;
 	}
 
+	private void cleanupFailedSit(SitData sitdata, Entity chairentity) {
+		if (sitdata.resitTaskId != -1) {
+			Bukkit.getScheduler().cancelTask(sitdata.resitTaskId);
+		}
+		chairentity.remove();
+	}
+
 	public void resitPlayer(final Player player) {
-		SitData sitdata = sittingPlayers.get(player);
+		SitData sitdata = sittingPlayers.get(player.getUniqueId());
 		if ((sitdata == null) || !sitdata.sitting) {
 			return;
 		}
-		sitdata.sitting = false;
 		Entity oldentity = sitdata.entity;
 		if ((oldentity == null) || !oldentity.isValid()) {
 			unsitPlayerForce(player, false);
@@ -123,19 +143,22 @@ public class PlayerSitData {
 			chairentity = plugin.getSitUtils().spawnChairEntity(oldentity.getLocation());
 		} catch (RuntimeException ex) {
 			plugin.getLogger().log(java.util.logging.Level.WARNING, "[SIT-RESIT] Failed to respawn chair entity for " + player.getName(), ex);
-			sitdata.sitting = true;
+			if (!oldentity.isValid()) {
+				unsitPlayerForce(player, false);
+			}
 			return;
 		}
 		if ((chairentity == null) || !chairentity.addPassenger(player)) {
 			if (chairentity != null) {
 				chairentity.remove();
 			}
-			sitdata.sitting = true;
+			if (!oldentity.isValid()) {
+				unsitPlayerForce(player, false);
+			}
 			return;
 		}
 		sitdata.entity = chairentity;
 		oldentity.remove();
-		sitdata.sitting = true;
 	}
 
 	public boolean unsitPlayer(Player player) {
@@ -147,42 +170,56 @@ public class PlayerSitData {
 	}
 
 	private boolean unsitPlayer(final Player player, boolean canCancel, boolean teleport) {
-		SitData sitdata = sittingPlayers.get(player);
+		UUID uuid = player.getUniqueId();
+		if (unsittingNow.contains(uuid)) {
+			return true;
+		}
+		SitData sitdata = sittingPlayers.get(uuid);
 		if (sitdata == null) {
 			return true;
 		}
-		Location teleportBackLocation = (sitdata.teleportBackLocation != null) ? sitdata.teleportBackLocation.clone() : player.getLocation();
-		final PlayerChairUnsitEvent playerunsitevent = new PlayerChairUnsitEvent(player, teleportBackLocation, canCancel);
-		Bukkit.getPluginManager().callEvent(playerunsitevent);
-		if (playerunsitevent.isCancelled() && playerunsitevent.canBeCancelled()) {
-			sitdata.sitting = true;
-			return false;
-		}
-		sitdata.sitting = false;
+		unsittingNow.add(uuid);
 		try {
-			player.leaveVehicle();
-		} catch (RuntimeException ex) {
-			plugin.getLogger().log(java.util.logging.Level.WARNING, "[SIT-UNSIT] leaveVehicle failed for " + player.getName(), ex);
-		}
-		player.setSneaking(false);
-		occupiedBlocks.remove(sitdata.occupiedBlock);
-		if(sitdata.resitTaskId != -1) {
-			Bukkit.getScheduler().cancelTask(sitdata.resitTaskId);
-		}
-		if (sitdata.entity != null) {
-			sitdata.entity.remove();
-		}
-		sittingPlayers.remove(player);
-		if (teleport) {
-			Location teleportLocation = playerunsitevent.getTeleportLocation();
-			if (teleportLocation != null) {
-				player.teleport(teleportLocation.clone());
+			Location teleportBackLocation = (sitdata.teleportBackLocation != null) ? sitdata.teleportBackLocation.clone() : player.getLocation();
+			final PlayerChairUnsitEvent playerunsitevent = new PlayerChairUnsitEvent(player, teleportBackLocation, canCancel);
+			Bukkit.getPluginManager().callEvent(playerunsitevent);
+			if (playerunsitevent.isCancelled() && playerunsitevent.canBeCancelled()) {
+				sitdata.sitting = true;
+				return false;
 			}
+			sittingPlayers.remove(uuid);
+			occupiedBlocks.remove(sitdata.occupiedBlock);
+			if (sitdata.resitTaskId != -1) {
+				Bukkit.getScheduler().cancelTask(sitdata.resitTaskId);
+			}
+			boolean dismounted = false;
+			try {
+				dismounted = player.leaveVehicle();
+			} catch (RuntimeException ex) {
+				plugin.getLogger().log(java.util.logging.Level.WARNING, "[SIT-UNSIT] leaveVehicle failed for " + player.getName(), ex);
+			}
+			if (!dismounted && sitdata.entity != null && sitdata.entity.isValid()) {
+				sitdata.entity.remove();
+			}
+			player.setSneaking(false);
+			sitdata.sitting = false;
+			if (teleport) {
+				Location teleportLocation = playerunsitevent.getTeleportLocation();
+				if (teleportLocation != null) {
+					try {
+						player.teleport(teleportLocation.clone());
+					} catch (RuntimeException ex) {
+						plugin.getLogger().log(java.util.logging.Level.WARNING, "[SIT-UNSIT] Teleport back failed for " + player.getName(), ex);
+					}
+				}
+			}
+			if (plugin.getChairsConfig().msgEnabled) {
+				player.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.getChairsConfig().msgSitLeave));
+			}
+			return true;
+		} finally {
+			unsittingNow.remove(uuid);
 		}
-		if (plugin.getChairsConfig().msgEnabled) {
-			player.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.getChairsConfig().msgSitLeave));
-		}
-		return true;
 	}
 
 	protected static class SitData {
@@ -191,8 +228,8 @@ public class PlayerSitData {
 		protected final Block occupiedBlock;
 		protected int resitTaskId;
 
-		protected boolean sitting;
-		protected Entity entity;
+		protected volatile boolean sitting;
+		protected volatile Entity entity;
 
 		public SitData(Entity arrow, Location teleportLocation, Block block, int resitTaskId) {
 			this.entity = arrow;

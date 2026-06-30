@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -67,6 +68,8 @@ public class ChairsConfig {
 	protected static final String msgSitDisabledPath = "disabled";
 	protected static final String msgSitCommandRestrictedPath = "commandrestricted";
 
+	private static final Map<String, Pattern> patternCache = new HashMap<>();
+
 
 	public final Set<String> sitDisabledWorlds = new HashSet<>();
 	public boolean sitRequireEmptyHand = false;
@@ -85,7 +88,7 @@ public class ChairsConfig {
 	public final Set<String> disabledChairPatterns = new HashSet<>();
 
 	public boolean effectsHealEnabled = false;
-	public int effectsHealMaxHealth = 100;
+	public int effectsHealMaxPercent = 100;
 	public int effectsHealInterval = 20;
 	public int effectsHealHealthPerInterval = 1;
 	public boolean effectsItemPickupEnabled = false;
@@ -101,6 +104,7 @@ public class ChairsConfig {
 	public String msgSitCommandRestricted = "&7You can't issue this command while sitting";
 
 	public void reloadConfig() {
+		patternCache.clear();
 		File file = new File(plugin.getDataFolder(), "config.yml");
 
 		{
@@ -174,7 +178,7 @@ public class ChairsConfig {
 				ConfigurationSection sitEffectsHealSection = sitEffectsSection.getConfigurationSection(sitEffectsHealingSectionPath);
 				if (sitEffectsHealSection != null) {
 					effectsHealEnabled = sitEffectsHealSection.getBoolean(sitEffectsHealingEnabledPath, effectsHealEnabled);
-					effectsHealMaxHealth = sitEffectsHealSection.getInt(sitEffectsHealingMaxPercentPath, effectsHealMaxHealth);
+					effectsHealMaxPercent = sitEffectsHealSection.getInt(sitEffectsHealingMaxPercentPath, effectsHealMaxPercent);
 					effectsHealInterval = sitEffectsHealSection.getInt(sitEffectsHealingIntervalPath, effectsHealInterval);
 					effectsHealHealthPerInterval = sitEffectsHealSection.getInt(sitEffectsHealingAmountPath, effectsHealHealthPerInterval);
 				}
@@ -262,7 +266,7 @@ public class ChairsConfig {
 				ConfigurationSection sitEffectsHealSection = sitEffectsSection.createSection(sitEffectsHealingSectionPath);
 				{
 					sitEffectsHealSection.set(sitEffectsHealingEnabledPath, effectsHealEnabled);
-					sitEffectsHealSection.set(sitEffectsHealingMaxPercentPath, effectsHealMaxHealth);
+					sitEffectsHealSection.set(sitEffectsHealingMaxPercentPath, effectsHealMaxPercent);
 					sitEffectsHealSection.set(sitEffectsHealingIntervalPath, effectsHealInterval);
 					sitEffectsHealSection.set(sitEffectsHealingAmountPath, effectsHealHealthPerInterval);
 				}
@@ -379,8 +383,12 @@ public class ChairsConfig {
 		if (!pattern.contains("*")) {
 			return false;
 		}
-		String regex = pattern.replace("*", ".*");
-		return materialName.matches(regex);
+		Pattern compiled = patternCache.get(pattern);
+		if (compiled == null) {
+			compiled = Pattern.compile(pattern.replace("*", ".*"));
+			patternCache.put(pattern, compiled);
+		}
+		return compiled.matcher(materialName).matches();
 	}
 
 	public static enum ChairEntityType {

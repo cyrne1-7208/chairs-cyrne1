@@ -10,7 +10,11 @@ import com.cnaude.chairs.core.PlayerSitData;
 public class ChairsAPI {
 
 	private static PlayerSitData getPlayerSitData() {
-		return Chairs.getInstance().getPlayerSitData();
+		Chairs instance = Chairs.getInstance();
+		if (instance == null) {
+			throw new IllegalStateException("Chairs plugin is not enabled");
+		}
+		return instance.getPlayerSitData();
 	}
 
 	public static boolean isSitting(Player player) {

@@ -38,7 +38,7 @@ public class CommandRestrict implements Listener {
 			for (String disabledCommand : config.restrictionsDisabledCommands) {
 				if (playercommand.startsWith(disabledCommand)) {
 					String therest = playercommand.substring(disabledCommand.length());
-					if (therest.isEmpty() || therest.startsWith(" ")) {
+					if (therest.isEmpty() || Character.isWhitespace(therest.charAt(0))) {
 						event.setCancelled(true);
 						player.sendMessage(ChatColor.translateAlternateColorCodes('&', config.msgSitCommandRestricted));
 						return;

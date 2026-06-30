@@ -29,6 +29,17 @@ public class ChairsCommand implements CommandExecutor, TabCompleter {
 	protected final ChairsConfig config;
 	protected final PlayerSitData sitdata;
 
+	private static final List<String> SORTED_MATERIAL_NAMES;
+
+	static {
+		List<String> names = new ArrayList<>();
+		for (Material m : Material.values()) {
+			names.add(m.name());
+		}
+		Collections.sort(names);
+		SORTED_MATERIAL_NAMES = Collections.unmodifiableList(names);
+	}
+
 	public ChairsCommand(Chairs plugin) {
 		this.plugin = plugin;
 		this.config = plugin.getChairsConfig();
@@ -250,13 +261,11 @@ public class ChairsCommand implements CommandExecutor, TabCompleter {
 			if ("*_STAIRS".startsWith(prefix)) {
 				results.add("*_STAIRS");
 			}
-			for (Material material : Material.values()) {
-				String name = material.name();
+			for (String name : SORTED_MATERIAL_NAMES) {
 				if (name.startsWith(prefix)) {
 					results.add(name);
 				}
 			}
-			Collections.sort(results);
 			return results;
 		}
 

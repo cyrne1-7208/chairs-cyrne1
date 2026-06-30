@@ -24,6 +24,8 @@ public class SitUtils {
 	protected final ChairsConfig config;
 	protected final PlayerSitData sitdata;
 
+	private static final Vector ZERO_UP = new Vector(0, 1, 0);
+
 	public SitUtils(Chairs plugin) {
 		this.plugin = plugin;
 		this.config = plugin.getChairsConfig();
@@ -38,7 +40,7 @@ public class SitUtils {
 		}
 		switch (config.sitChairEntityType) {
 			case ARROW: {
-				Arrow arrow = world.spawnArrow(location, new Vector(0, 1, 0), 0, 0);
+				Arrow arrow = world.spawnArrow(location, ZERO_UP, 0, 0);
 				arrow.setGravity(false);
 				arrow.setInvulnerable(true);
 				arrow.setPickupStatus(PickupStatus.DISALLOWED);
@@ -90,8 +92,10 @@ public class SitUtils {
 	}
 
 	public Location calculateSitLocation(Player player, Block block) {
+		Location playerLoc = player.getLocation();
+		Location blockLoc = block.getLocation();
 
-		if (!canSitGeneric(player, block)) {
+		if (!canSitGeneric(player, block, playerLoc, blockLoc)) {
 			return null;
 		}
 
@@ -99,7 +103,7 @@ public class SitUtils {
 		if (config.isMaterialExplicitlyDisabled(blockdata.getMaterial())) {
 			return null;
 		}
-		float yaw = player.getLocation().getYaw();
+		float yaw = playerLoc.getYaw();
 		Double sitHeight = null;
 
 		if ((blockdata instanceof Stairs) && config.stairsEnabled) {
@@ -175,10 +179,42 @@ public class SitUtils {
 			}
 		}
 
-		Location plocation = block.getLocation();
+		if (sitHeight <= 0) {
+			return null;
+		}
+
+		Location plocation = blockLoc.clone();
 		plocation.setYaw(yaw);
 		plocation.add(0.5D, (sitHeight - 0.5D), 0.5D);
 		return plocation;
+	}
+
+	protected boolean canSitGeneric(Player player, Block block, Location playerLoc, Location blockLoc) {
+
+		if (player.isSneaking()) {
+			return false;
+		}
+		if (!player.hasPermission("chairs.sit")) {
+			return false;
+		}
+
+		if (config.sitDisabledWorlds.contains(player.getWorld().getName())) {
+			return false;
+		}
+		if ((config.sitMaxDistance > 0) && (playerLoc.distance(blockLoc.add(0.5, 0, 0.5)) > config.sitMaxDistance)) {
+			return false;
+		}
+		if (config.sitRequireEmptyHand && (player.getInventory().getItemInMainHand().getType() != Material.AIR)) {
+			return false;
+		}
+
+		if (sitdata.isSittingDisabled(player)) {
+			return false;
+		}
+		if (sitdata.isSitting(player)) {
+			return false;
+		}
+		return !sitdata.isBlockOccupied(block);
 	}
 
 	protected static boolean isStairsSittable(Stairs stairs) {

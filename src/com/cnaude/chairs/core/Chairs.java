@@ -3,15 +3,25 @@ package com.cnaude.chairs.core;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.event.Event;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.spigotmc.event.entity.EntityDismountEvent;
 
 import com.cnaude.chairs.commands.ChairsCommand;
 import com.cnaude.chairs.listeners.NANLoginListener;
@@ -58,13 +68,6 @@ public class Chairs extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		try {
-			getClass().getClassLoader().loadClass(EntityDismountEvent.class.getName());
-		} catch (Throwable t) {
-			getLogger().log(Level.SEVERE, "Missing EntityDismountEvent", t);
-			setEnabled(false);
-			return;
-		}
 		if (!getDataFolder().exists()) {
 			if (!getDataFolder().mkdirs() && !getDataFolder().exists()) {
 				getLogger().warning("Could not create plugin data folder: " + getDataFolder().getAbsolutePath());
@@ -82,6 +85,13 @@ public class Chairs extends JavaPlugin {
 		getServer().getPluginManager().registerEvents(new TrySitEventListener(this), this);
 		getServer().getPluginManager().registerEvents(new TryUnsitEventListener(this), this);
 		getServer().getPluginManager().registerEvents(new CommandRestrict(this), this);
+
+		if (!registerDismountHandler()) {
+			getLogger().log(Level.SEVERE, "Missing EntityDismountEvent. Plugin cannot enable.");
+			setEnabled(false);
+			return;
+		}
+
 		ChairsCommand commandExecutor = new ChairsCommand(this);
 
 		PluginCommand chairsCommand = getCommand("chairs");
@@ -100,6 +110,75 @@ public class Chairs extends JavaPlugin {
 		}
 	}
 
+	@SuppressWarnings("unchecked")
+	private boolean registerDismountHandler() {
+		Class<?> eventClass = null;
+		for (String className : new String[] {
+			"org.spigotmc.event.entity.EntityDismountEvent",
+			"io.papermc.paper.event.entity.EntityDismountEvent",
+			"org.bukkit.event.entity.EntityDismountEvent"
+		}) {
+			try {
+				eventClass = Class.forName(className);
+				break;
+			} catch (ClassNotFoundException ignored) {
+			}
+		}
+		if (eventClass == null) {
+			return false;
+		}
+
+		try {
+			Method getEntityMethod = eventClass.getMethod("getEntity");
+			Method setCancelledMethod = eventClass.getMethod("setCancelled", boolean.class);
+			Map<UUID, Location> dismountTeleport = new HashMap<>();
+
+			getServer().getPluginManager().registerEvent(
+				(Class<? extends Event>) eventClass,
+				new Listener() {},
+				EventPriority.LOWEST,
+				(l, event) -> {
+					try {
+						Object entity = getEntityMethod.invoke(event);
+						if (entity instanceof Player) {
+							Player player = (Player) entity;
+							if (psitdata.isSitting(player)) {
+								Location preDismount = player.getLocation();
+								if (!psitdata.unsitPlayer(player)) {
+									setCancelledMethod.invoke(event, true);
+								} else {
+									UUID uuid = player.getUniqueId();
+									dismountTeleport.put(uuid, preDismount);
+									Bukkit.getScheduler().scheduleSyncDelayedTask(this, () -> dismountTeleport.remove(uuid));
+								}
+							}
+						}
+					} catch (Exception ex) {
+						getLogger().log(Level.WARNING, "[SIT-UNSIT] Dismount handling failed", ex);
+					}
+				},
+				this
+			);
+
+			getServer().getPluginManager().registerEvents(new Listener() {
+				@EventHandler(priority = EventPriority.LOWEST)
+				public void onTeleportUnknown(PlayerTeleportEvent event) {
+					if (event.getCause() == TeleportCause.UNKNOWN) {
+						Location preDismount = dismountTeleport.remove(event.getPlayer().getUniqueId());
+						if (preDismount != null) {
+							event.setCancelled(true);
+						}
+					}
+				}
+			}, this);
+
+			return true;
+		} catch (Exception e) {
+			getLogger().log(Level.WARNING, "Could not register dismount handler", e);
+			return false;
+		}
+	}
+
 	@Override
 	public void onDisable() {
 		for (Player player : Bukkit.getOnlinePlayers()) {
@@ -113,6 +192,7 @@ public class Chairs extends JavaPlugin {
 
 	@Override
 	public void reloadConfig() {
+		super.reloadConfig();
 		config.reloadConfig();
 		if (config.effectsHealEnabled) {
 			chairEffects.restartHealing();

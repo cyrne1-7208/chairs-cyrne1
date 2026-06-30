@@ -25,11 +25,11 @@ public class PlayerChairUnsitEvent extends PlayerEvent implements Cancellable {
 	}
 
 	public Location getTeleportLocation() {
-		return unsitLocation.clone();
+		return (unsitLocation != null) ? unsitLocation.clone() : null;
 	}
 
 	public void setTeleportLocation(Location location) {
-		unsitLocation = location.clone();
+		unsitLocation = (location != null) ? location.clone() : null;
 	}
 
 	@Override
